@@ -1,0 +1,5 @@
+# Neutral-input presentation smoke. Run from build/game so output stays local.
+WAIT 120
+SCREENSHOT title-windowed.png
+WAIT 2
+EXIT 0

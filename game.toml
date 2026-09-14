@@ -1,0 +1,40 @@
+# The Guardian Legend (USA), iNES mapper 2, 8 PRG banks, CHR RAM.
+[game]
+output_prefix = "guardian-legend"
+symbol_file = "symbols.sym"
+push_all_jsr = true
+# The generic pointer scan interprets compressed graphics as thousands of
+# functions. Start with vector/control-flow discovery and runtime miss logs.
+disable_ptr_scan = true
+
+# D705 writes the bank through the conflict-safe table at FFF2,Y.
+[mapper]
+bank_switch = [0xD705]
+
+# D76F (also reached through JMP thunk C006) consumes bank, target-1 lo/hi
+# after JSR, dispatches via RTS, then restores the bank saved in ZP $04.
+[[trampoline]]
+addr = 0xD76F
+inline_bytes = 3
+bs_fn_addr = 0xD705
+addr_adjust = 1
+bank_reg = "A"
+bank_save_addr = 0x04
+
+# Bank entry-table JMP stubs referenced by inline bank calls.
+[functions]
+bank0 = [0x8018]
+bank2 = [0x8018]
+bank5 = [0x8024, 0x8033]
+
+# Sound-command setup mixes an RTS dispatch at $97FF with a normal RTS at
+# $9859. Native generation inserts an extra stack-pop dispatch on the latter
+# path (after $9857), corrupting the return to $97DA at logical frame 2.
+# Sound-stream decoding at $92F7 pushes a handler from $932C/$932D and a
+# continuation ($9303) before RTS $932B, which native code treats as a return.
+# Command $82 enters $9376, discards BOTH the synthetic continuation and the
+# $91F3 JSR return, then jumps to $9239 inside the enclosing sound-update loop.
+# Interpret from $917C so all four PLAs stay within one architectural frame;
+# a decoder-only island exits after the third PLA and corrupts NMI restoration.
+[force_interp]
+bank0 = [0x917C, 0x92F7, 0x97E4]

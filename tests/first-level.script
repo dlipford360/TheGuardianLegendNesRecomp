@@ -1,0 +1,16 @@
+# Enter twice: leave the title, then start the opening corridor.
+WAIT 180
+HOLD START
+WAIT 8
+RELEASE START
+WAIT 90
+SCREENSHOT first-level-menu.png
+HOLD START
+WAIT 8
+RELEASE START
+WAIT 360
+SCREENSHOT first-level-early.png
+WAIT 1200
+SCREENSHOT first-level-late.png
+WAIT 2
+EXIT 0

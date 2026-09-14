@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.20)
+project(nesref_oracle LANGUAGES CXX)
+
+find_package(SDL2 CONFIG QUIET)
+if(NOT TARGET SDL2::SDL2)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+endif()
+
+get_filename_component(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+add_executable(nesref "${REPO_ROOT}/nesrecomp/tools/nesref/frontend.cpp")
+target_compile_features(nesref PRIVATE cxx_std_11)
+target_include_directories(nesref PRIVATE "${REPO_ROOT}/nesrecomp/runner/src")
+if(TARGET SDL2::SDL2)
+    target_link_libraries(nesref PRIVATE SDL2::SDL2)
+else()
+    target_link_libraries(nesref PRIVATE PkgConfig::SDL2)
+endif()

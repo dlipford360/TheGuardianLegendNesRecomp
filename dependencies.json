@@ -1,0 +1,6 @@
+{
+  "reference": {"url": "https://github.com/mstan/SuperMarioBrosNESRecomp.git", "revision": "9152ffe93004c4b3c060751b18bc0b333b32869f"},
+  "nesrecomp": "1c7f3a266edc0584119adb0105475994c33676aa",
+  "recomp-ui": "8b08d327e032ede53a55cbf81aa606f3a36a4839",
+  "mesen": "0102910c39ad1a62bc3f784466f3f67ca9eae335"
+}
