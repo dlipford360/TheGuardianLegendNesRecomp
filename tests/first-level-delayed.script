@@ -1,0 +1,15 @@
+# Let title music reach its channel-end commands before the two Start presses.
+WAIT 900
+HOLD START
+WAIT 8
+RELEASE START
+WAIT 90
+HOLD START
+WAIT 8
+RELEASE START
+WAIT 360
+SCREENSHOT first-level-delayed-early.png
+WAIT 1200
+SCREENSHOT first-level-delayed-late.png
+WAIT 2
+EXIT 0
