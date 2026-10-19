@@ -21,11 +21,65 @@ addr_adjust = 1
 bank_reg = "A"
 bank_save_addr = 0x04
 
+# C06C (JMP thunk to D5CC) is a deferred banked-call queue: it PLAs the JSR
+# return, reads 4 inline operand bytes via ($16),Y, queues the call in the
+# $0100 table, re-pushes the pointer advanced past the operands, and RTSes —
+# rewriting the return to the instruction after the operands. Native fallthrough
+# would execute those operand bytes as code (e.g. the fake RTI at $8230 inside
+# the death handler, which skips the GAME OVER→title flow and deadlocks the
+# queue → black screen after boss death). Honor the rewritten RTS operand by
+# dispatching g_rts_target+1 after the call, like the interpreter's MN_JSR.
+[[return_adjust_func]]
+addr = 0xC06C
+
 # Bank entry-table JMP stubs referenced by inline bank calls.
+# The title/menu path can enter $8381 and $843A dynamically; compile these as
+# native entries instead of letting fallback interpreter calls run indefinitely
+# in title-screen routines that wait for input.
 [functions]
-bank0 = [0x8018]
+# Continuation after the inline "YOU GOT KEY" text at $F5CC-$F5D8.
+# $D5EA is the sound stub-list walker's "advance to next stub" continuation:
+# $D58A jumps through the ($16) cursor, and the walker re-enters at $D5EA
+# after each stub. Entered dynamically (dispatch miss, ipc in the $DAD8
+# $2B APU-drain wait), the interpreter reaches that drain loop with the
+# queue busy; $2B only clears at frame boundaries, which the atomic
+# interpreter never reaches, so it spins to the watchdog and pauses the
+# game (dead retry prompt after a death, intermittent with sound state).
+# Compiled, the drain loop crosses frame boundaries like hardware.
+fixed = [0xF5D9, 0xD5EA]
+# The death handler's $822D JSR $C06C return-adjust follow enters $8234
+# dynamically (string output, wait loop, $8260 JSR $C0ED, $8263 JMP $C14D),
+# and its $C06F queue trampoline enqueues the $8243 wait-loop continuation,
+# which the queue executor dispatches as a task entry. Interpreted, either
+# tail's TXS at $FF4C lifts S above the interpreter's entry frame, its
+# stack-escape exit discards the $FF4D continuation, and the main loop
+# resumes mid-body at $FF82 — skipping the $FF4D-$FF77 re-init (display
+# stays off: black screen after the final death). Compiled, the JMP $C14D →
+# $FF4A re-entry runs the full init like hardware.
+# $829C is the retry prompt's "wait for START" handler, entered dynamically
+# by the queue dispatcher ($DAD8) when the player answers a death with lives
+# remaining. Interpreted, its $829F poll loop (JSR $C0E4, AND #$10, BEQ) runs
+# atomically: input is never re-latched inside one interpreter call, so the
+# held START is invisible, the 2M-instruction watchdog bails, and the runtime
+# pauses with a dead keyboard. Compiled, the loop crosses frame boundaries,
+# the START latch updates, and the $82AA JSR $C0ED / $82AD JMP $C150 re-init
+# resumes the level like hardware.
+# $8236-$8242 are the death handler's inline sound-stub window. The $8234
+# JSR $C06F hands the return address ($8236) to the stub walker as a cursor
+# ($16/$17); $D58A dispatches each stub with PHA/PHA/RTS, which executes
+# ($16)+1, so odd cursor values run at even addresses ($8238, $823A, ...).
+# Those are mid-instruction for the static decode of the $8237 data bytes,
+# so a walker jump there was a dispatch miss: interpreted, the walker's
+# $DAD8-side $2B APU-drain wait spins (the flag only clears at frame
+# boundaries) until the watchdog bails — seen as $8238 after a second
+# die-after-reload. Rooting the whole window compiles every stub entry
+# natively; frame hashes are byte-identical to the interpreted decode.
+bank0 = [0x8018, 0x8234, 0x8236, 0x8238, 0x823A, 0x823C, 0x823E, 0x8240, 0x8242, 0x8243, 0x829C, 0x8381, 0x843A]
 bank2 = [0x8018]
-bank5 = [0x8024, 0x8033]
+bank5 = [0x8012, 0x8024, 0x8033]
+# Dynamic overworld entry: calls bank5:$8012 through the inline trampoline.
+# The callee can wait for player input, outliving a fallback call's step cap.
+bank6 = [0x9A12]
 
 # Sound-command setup mixes an RTS dispatch at $97FF with a normal RTS at
 # $9859. Native generation inserts an extra stack-pop dispatch on the latter

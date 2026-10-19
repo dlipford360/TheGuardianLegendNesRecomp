@@ -44,6 +44,11 @@ target_link_libraries(GuardianLegendRecomp PRIVATE ${SDL2_LIBRARIES})
 if(WIN32)
     target_link_libraries(GuardianLegendRecomp PRIVATE ws2_32 dbghelp)
 endif()
+if(APPLE)
+    # launcher.c sets ApplePressAndHoldEnabled via CFPreferences (accent-panel
+    # opt-out for held keys); the Homebrew SDL2 dylib does not re-export it.
+    target_link_libraries(GuardianLegendRecomp PRIVATE "-framework CoreFoundation")
+endif()
 if(TGL_LAUNCHER)
     include("${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui/recomp_ui.cmake")
     recomp_target_launcher_ui(GuardianLegendRecomp CONSOLE nes)

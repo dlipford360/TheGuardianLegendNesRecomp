@@ -20,12 +20,17 @@ def main():
     scenarios = parser.add_mutually_exclusive_group()
     scenarios.add_argument("--delayed", action="store_true", help="wait for title music to loop before starting")
     scenarios.add_argument("--combat", action="store_true", help="shoot and move during the opening corridor")
-    parser.add_argument("--timeout", type=int, default=90)
+    scenarios.add_argument("--shoot", action="store_true",
+                           help="strafe while holding fire until GAME OVER, then press START to retry")
+    parser.add_argument("--timeout", type=int, default=None)
     args = parser.parse_args()
     rom = ROOT / ROM_NAME
     info = rom_info(rom)
     executable = (args.exe or ROOT / ("build/game" if args.windowed else "build/cosim") / "GuardianLegendRecomp").resolve()
-    scenario = "combat" if args.combat else "delayed" if args.delayed else "early"
+    scenario = ("shoot" if args.shoot else "combat" if args.combat else "delayed" if args.delayed else "early")
+    if args.timeout is None:
+        # The shoot replay is ~6.4k frames: real-time windowed pacing needs the extra room.
+        args.timeout = 240 if scenario == "shoot" else 90
     script = ROOT / "tests" / (f"first-level-{scenario}.script" if scenario != "early" else "first-level.script")
     output = ROOT / "build/first-level-runs"
     output.mkdir(parents=True, exist_ok=True)
@@ -59,12 +64,36 @@ def main():
                              if row["caller_pc"] in {"$91F3", "$DCDF"}]
     if sound_escapes:
         failures.append("sound decoder/NMI stack escape")
+    # The shoot scenario ends by retrying after GAME OVER; the historical black-screen
+    # bug froze the display there, so require GAME OVER -> title -> new game on-screen.
+    if scenario == "shoot" and not args.windowed and (output / "smoke.json").is_file():
+        labels = {"5b26791d": "title", "ce983654": "game-over", "5079e9d5": "new-game",
+                  "07673647": "black"}
+        hashes = json.loads((output / "smoke.json").read_text())["frame_hashes"]
+        sequence = []
+        for frame in sorted(hashes, key=int):
+            label = labels.get(hashes[frame], "play")
+            if not sequence or sequence[-1] != label:
+                sequence.append(label)
+        retry = ["game-over", "title", "new-game"]
+        rest, found = sequence, True
+        for step in retry:
+            if step not in rest:
+                found = False
+                break
+            rest = rest[rest.index(step) + 1:]
+        if not found:
+            failures.append(f"missing retry sequence {retry} in {sequence}")
+        if sequence and sequence[-1] == "black":
+            failures.append("display stuck black at end of shoot replay")
+        result["screen_sequence"] = sequence
     result.update(status="FAIL" if failures else "PASS", failures=failures,
                   script=str(script.relative_to(ROOT)), script_sha256=sha256(script),
                   executable_sha256=sha256(executable), rom=info,
                   frames=int(completed[1]) if completed else None,
                   screenshots=screenshots, sound_escapes=sound_escapes,
-                  scope="script completion, fatal BRK and sound-stack checks; inspect screenshots for presentation")
+                  scope="script completion, fatal BRK and sound-stack checks; shoot also checks the "
+                        "game-over/title/new-game screen sequence; inspect screenshots for presentation")
     (output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"{result['status']}: {output / 'summary.json'}")
     for failure in failures:

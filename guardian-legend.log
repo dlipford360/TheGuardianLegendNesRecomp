@@ -1,0 +1,13 @@
+[Runner] ROM: 8 PRG banks x 16KB, 0 CHR banks x 8KB, Mapper 2
+[Runner] Vectors: NMI=$DC75 RESET=$FEDE IRQ=$DCF3
+[Mapper] Init: 8 PRG banks, Mapper 2
+[Keybinds] Loaded build/game/keybinds.ini
+[ppu_dot] renderer: dot-accurate per-scanline (opt-in)
+[Controller] No gamepad detected; keyboard active. Plug one in anytime.
+[APU] Audio device opened: 44100 Hz, 1 ch  (bridge=on, target=60ms)
+[Runner] Starting main game loop...
+[SaveState] Loaded from /Users/dlipford/code/ai-projects/messaround/recomps/tglrecomp00/build/game/savestates/slot09.sav (frame 394509)
+[SaveState] Resuming guest execution at $DADA
+[SaveState] Loaded from /Users/dlipford/code/ai-projects/messaround/recomps/tglrecomp00/build/game/savestates/slot09.sav (frame 394509)
+[SaveState] Resuming guest execution at $DADA
+[BRK] executed at $5020 bank=0 (frame 395808) — BRK is silently skipped under DIAG; consider real implementation if this site matters.
