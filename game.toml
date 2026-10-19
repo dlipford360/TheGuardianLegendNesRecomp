@@ -1,179 +1,94 @@
-# game.toml — Super Mario Bros. (NES, Mapper 0 / NROM, 2 PRG banks, 1 CHR ROM bank)
-
+# The Guardian Legend (USA), iNES mapper 2, 8 PRG banks, CHR RAM.
 [game]
-output_prefix = "super-mario-bros"
+output_prefix = "guardian-legend"
 symbol_file = "symbols.sym"
+push_all_jsr = true
+# The generic pointer scan interprets compressed graphics as thousands of
+# functions. Start with vector/control-flow discovery and runtime miss logs.
+disable_ptr_scan = true
 
-# Custom renderer observes completed logical terrain columns. Stock body
-# always runs; no screen-edge, culling, spawning or collision reads are changed.
-[[mod_function_hook]]
-addr = 0x88AE           # RenderAreaGraphics
+# D705 writes the bank through the conflict-safe table at FFF2,Y.
+[mapper]
+bank_switch = [0xD705]
 
-# Clear cached block edits when an area starts again, including after death.
-[[mod_function_hook]]
-addr = 0x8FE4           # InitializeArea
+# D76F (also reached through JMP thunk C006) consumes bank, target-1 lo/hi
+# after JSR, dispatches via RTS, then restores the bank saved in ZP $04.
+[[trampoline]]
+addr = 0xD76F
+inline_bytes = 3
+bs_fn_addr = 0xD705
+addr_adjust = 1
+bank_reg = "A"
+bank_save_addr = 0x04
 
-[[mod_function_hook]]
-addr = 0x93FC           # AreaParserCore: collision-column ownership
-[[mod_function_hook]]
-addr = 0xC26C           # CheckpointEnemyID: resident handoff/deduplication
-[[mod_function_hook]]
-addr = 0xE87D           # EnemyGfxHandler: capture full sprites before native culling
-[[mod_function_hook]]
-addr = 0xD67A           # OffscreenBoundsCheck: retire residents through the host
+# C06C (JMP thunk to D5CC) is a deferred banked-call queue: it PLAs the JSR
+# return, reads 4 inline operand bytes via ($16),Y, queues the call in the
+# $0100 table, re-pushes the pointer advanced past the operands, and RTSes —
+# rewriting the return to the instruction after the operands. Native fallthrough
+# would execute those operand bytes as code (e.g. the fake RTI at $8230 inside
+# the death handler, which skips the GAME OVER→title flow and deadlocks the
+# queue → black screen after boss death). Honor the rewritten RTS operand by
+# dispatching g_rts_target+1 after the call, like the interpreter's MN_JSR.
+[[return_adjust_func]]
+addr = 0xC06C
 
-# Falcon presents one stable Big-Mario collision envelope even when hidden
-# Mario health says small/crouched. game_smash64_ram_read_hook changes these
-# values only at PlayerBGCollision's four geometry reads; later
-# PlayerHeadCollision reads retain native size for bump-vs-shatter behavior.
-[[ram_read_hook]]
-addr = 0x0714           # CrouchingFlag
-[[ram_read_hook]]
-addr = 0x0754           # PlayerSize
-
-# Foreign fighter intangibility is a read-only injury verdict. The adapter
-# changes this byte only at ChkForPlayerInjury's $D913/$D92C reads, never the
-# native timer itself, so collision and stomp consequences still execute.
-[[ram_read_hook]]
-addr = 0x079E           # InjuryTimer
-
-# SMB inline indexed dispatch: JSR $8E04 pops return address to find a
-# 2-byte LE address table immediately after the JSR. Dispatches via A register.
-[[inline_dispatch]]
-addr = 0x8E04
-
+# Bank entry-table JMP stubs referenced by inline bank calls.
+# The title/menu path can enter $8381 and $843A dynamically; compile these as
+# native entries instead of letting fallback interpreter calls run indefinitely
+# in title-screen routines that wait for input.
 [functions]
-fixed = [
-    # Previously known
-    0xD969,  # EnemyStateDetermination — cross-function branch target
+# Continuation after the inline "YOU GOT KEY" text at $F5CC-$F5D8.
+# $D5EA is the sound stub-list walker's "advance to next stub" continuation:
+# $D58A jumps through the ($16) cursor, and the walker re-enters at $D5EA
+# after each stub. Entered dynamically (dispatch miss, ipc in the $DAD8
+# $2B APU-drain wait), the interpreter reaches that drain loop with the
+# queue busy; $2B only clears at frame boundaries, which the atomic
+# interpreter never reaches, so it spins to the watchdog and pauses the
+# game (dead retry prompt after a death, intermittent with sound state).
+# Compiled, the drain loop crosses frame boundaries like hardware.
+fixed = [0xF5D9, 0xD5EA]
+# The death handler's $822D JSR $C06C return-adjust follow enters $8234
+# dynamically (string output, wait loop, $8260 JSR $C0ED, $8263 JMP $C14D),
+# and its $C06F queue trampoline enqueues the $8243 wait-loop continuation,
+# which the queue executor dispatches as a task entry. Interpreted, either
+# tail's TXS at $FF4C lifts S above the interpreter's entry frame, its
+# stack-escape exit discards the $FF4D continuation, and the main loop
+# resumes mid-body at $FF82 — skipping the $FF4D-$FF77 re-init (display
+# stays off: black screen after the final death). Compiled, the JMP $C14D →
+# $FF4A re-entry runs the full init like hardware.
+# $829C is the retry prompt's "wait for START" handler, entered dynamically
+# by the queue dispatcher ($DAD8) when the player answers a death with lives
+# remaining. Interpreted, its $829F poll loop (JSR $C0E4, AND #$10, BEQ) runs
+# atomically: input is never re-latched inside one interpreter call, so the
+# held START is invisible, the 2M-instruction watchdog bails, and the runtime
+# pauses with a dead keyboard. Compiled, the loop crosses frame boundaries,
+# the START latch updates, and the $82AA JSR $C0ED / $82AD JMP $C150 re-init
+# resumes the level like hardware.
+# $8236-$8242 are the death handler's inline sound-stub window. The $8234
+# JSR $C06F hands the return address ($8236) to the stub walker as a cursor
+# ($16/$17); $D58A dispatches each stub with PHA/PHA/RTS, which executes
+# ($16)+1, so odd cursor values run at even addresses ($8238, $823A, ...).
+# Those are mid-instruction for the static decode of the $8237 data bytes,
+# so a walker jump there was a dispatch miss: interpreted, the walker's
+# $DAD8-side $2B APU-drain wait spins (the flag only clears at frame
+# boundaries) until the watchdog bails — seen as $8238 after a second
+# die-after-reload. Rooting the whole window compiles every stub entry
+# natively; frame hashes are byte-identical to the interpreted decode.
+bank0 = [0x8018, 0x8234, 0x8236, 0x8238, 0x823A, 0x823C, 0x823E, 0x8240, 0x8242, 0x8243, 0x829C, 0x8381, 0x843A]
+bank2 = [0x8018]
+bank5 = [0x8012, 0x8024, 0x8033]
+# Dynamic overworld entry: calls bank5:$8012 through the inline trampoline.
+# The callee can wait for player input, outliving a fallback call's step cap.
+bank6 = [0x9A12]
 
-    # --- From SMBDIS.ASM (https://gist.github.com/1wErt3r/4048722) ---
-    # JMP-only / dispatch-table-only targets not reachable via JSR chain.
-
-    # Game mode & demo
-    0x8233, 0x82BD, 0x82C2, 0x82DB, 0x838E, 0x8426, 0x9239, 0x9287, 0xAF27,
-    # VRAM / PPU helpers
-    0x85D9, 0x8653, 0x8660, 0x86DB, 0x8759, 0x8762, 0x8944, 0x89D1,
-    # Level object rendering
-    0x8F8A, 0x94AC, 0x9593, 0x9596, 0x9639, 0x963D, 0x97D4, 0x97DA,
-    0x9A25, 0x9A4A, 0x9A5C, 0x9A80, 0x9A84, 0x9A9B, 0x9B5C, 0x9B6F,
-    # Player control & physics
-    0xAFB7, 0xB053, 0xB148, 0xB281, 0xB2CE, 0xB396, 0xB43A, 0xB5C8,
-    0xB60E, 0xB67C, 0xB6DE, 0xB92C, 0xB9A9, 0xB9DA, 0xBB33, 0xBB48,
-    0xC0D6, 0xE1AC, 0xE1DC, 0xE23E, 0xE329,
-    # Player graphics
-    0xF477, 0xF4B9, 0xF4C0, 0xF522, 0xF595, 0xF6DE,
-    # Enemies: spawning & AI
-    0xBC57, 0xBC9E, 0xBD35, 0xBD8C, 0xBE33, 0xBEDB, 0xC0FA, 0xC0FF,
-    0xC101, 0xC11E, 0xC15D, 0xC268, 0xC3C1, 0xC3FD, 0xC408, 0xC40B,
-    0xC4CE, 0xC923, 0xCAA7, 0xDE19, 0xDEAE, 0xE4E6, 0xE4E9, 0xEDFA,
-    0xEE5B, 0xEE69, 0xEE7D, 0xEF97, 0xED76,
-    # Collision / bounding box
-    0xC516, 0xC518, 0xC724, 0xC8DC, 0xC9F0, 0xC9F2, 0xCA47, 0xCA4A,
-    0xCA67, 0xCA81, 0xCC6B, 0xCC90, 0xCD2E, 0xCF37, 0xD079, 0xD0C7,
-    0xD3D2, 0xD3FE, 0xD442, 0xD90F, 0xD93C, 0xD98A, 0xE094, 0xE57E,
-    0xE65A, 0xE6E8, 0xE7B1, 0xE7B3, 0xE83F,
-    # Fireball / flame / gfx
-    0xC81A, 0xD410, 0xF118, 0xF144, 0xF38C,
-    # Platform / objects
-    0xD61A, 0xD7A9, 0xD804, 0xD835, 0xD89F, 0xD8C4, 0xDB3C, 0xDB88,
-    0xDD56, 0xDD5C, 0xDD66, 0xE1B2, 0xE1BB, 0xE4C8, 0xEAE1,
-    # Offscreen bits
-    0xE686, 0xF611, 0xF617, 0xF693,
-    # Sound / music engine
-    0xF914, 0xF99E, 0xF9DA, 0xF9DF, 0xFB2B, 0xFB5D, 0xFBCB,
-]
-bank0 = [
-    0xB308,  # JSR target missing definition — bank0 explicit for correct suffix
-]
-
-# Smash 64 player replacement (mods/smash64_player_plugin.c): take over SMB1's
-# horizontal velocity integrator while the mod is enabled.
-#
-# ImposeFriction is the whole horizontal model -- it advances the 16-bit
-# Player_X_Speed:Player_X_MoveForce pair from input and clamps it to the caps
-# X_Physics selected -- and it is player-only by construction, reading
-# Player_CollisionBits/Player_X_Speed non-indexed. Called from just two sites,
-# GndMove ($B363) and LRAir ($B3B0).
-#
-# Hooking here rather than PlayerCtrlRoutine keeps SMB1's jump, gravity,
-# vertical collision, horizontal collision and position integration intact:
-# the velocity we write flows into MoveObjectHorizontally ($BF0F) and is
-# resolved by the game's own rules. The hook is inert unless the mod enables it.
-[[mod_function_hook]]
-addr = 0xB5CC           # ImposeFriction
-
-# ... and SMB1's vertical integrator, for the same reason plus one more: the
-# routine hard-caps the player's fall at 4 px/frame (LDA #4 before the tail-call
-# into ImposeGravitySprObj $BFAD -> ImposeGravity $BFD7, where CMP $0002 clamps).
-# Falcon's terminal velocity is 5.28 px/frame and his fast fall is 8.00, so
-# handing SMB1 our gravity would silently delete fast fall. The clamp is applied
-# inside the routine, after the add, so it cannot be pre-empted from outside.
-#
-# Vertical COLLISION is unaffected -- PlayerBGCollision runs separately and still
-# corrects the position we wrote. Inert unless the mod enables it.
-[[mod_function_hook]]
-addr = 0xBF4D           # MovePlayerVertically
-
-# ... and SMB1's jump TIMING, which is a different thing from its jump physics.
-#
-# CheckForJumping ($B479) fires InitJS on the A button's RISING EDGE, so Falcon's
-# 4-frame KneeBend has no window to live in and his short hop was unreachable.
-# The hook withholds the A bit in A_B_Buttons ($000A) for the squat and presents
-# it on the frame Falcon leaves the ground, so SMB1 launches when the fighter
-# says rather than when the button went down.
-#
-# $B450 and NOT PlayerCtrlRoutine ($B0E9): SaveJoyp lives inside $B0E9 and
-# rewrites $000A from SavedJoypadBits a few instructions past entry, so a mask
-# applied there is overwritten by the game before CheckForJumping reads it.
-# $B450 is downstream of SaveJoyp, upstream of $B479 in the same routine, and
-# entered from exactly one site (ProcMove).
-#
-# The hook always returns 0 -- it moves one input byte and lets SMB1's own
-# physics run unmodified. Inert unless the mod enables it.
-[[mod_function_hook]]
-addr = 0xB450           # PlayerPhysicsSub
-
-# ... and SMB1's horizontal integrator, so M4's per-pixel sweep owns X the way
-# the vertical hook owns Y.
-#
-# $BF09 (MovePlayerHorizontally) and NOT $BF0F (MoveObjectHorizontally): the
-# latter is generic -- enemies reach it through MoveEnemyHorizontally and four
-# other call sites -- so hooking it would freeze every enemy. $BF09 is the
-# player-only wrapper (LDA JumpspringAnimCtrl / BNE ExXMove / TAX -> X=0).
-#
-# ABI: both callers store the routine's return A as Player_X_Scroll (the whole
-# pixels moved, driving the scroll engine), so the hook synthesizes A from the
-# swept distance. Inert unless the mod enables it.
-[[mod_function_hook]]
-addr = 0xBF09           # MovePlayerHorizontally
-
-# BoundingBoxCore is shared, but the player control byte is element zero.
-# The enabled callback keeps only that element on SMB1's Big-Mario envelope so
-# Falcon cannot inherit Small Mario's one-tile contact box.
-[[mod_function_hook]]
-addr = 0xE29C           # BoundingBoxCore
-
-# Metroid Samus replacement: contact is routed to the energy/no-stomp layer,
-# and mushroom/fire-flower collection is converted to energy restoration.
-# Both callbacks self-gate and are enabled only by the Samus package.
-[[mod_function_hook]]
-addr = 0xD853           # PlayerEnemyCollision
-
-[[mod_function_hook]]
-addr = 0xD800           # HandlePowerUpCollision
-
-[[mod_function_hook]]
-addr = 0xD92C           # InjurePlayer (firebars and other native hazards)
-
-[[mod_function_hook]]
-addr = 0xE54B           # FlagpoleGfxHandler: complete wide flag and score sprites
-
-[[mod_function_hook]]
-addr = 0xC787           # InitPiranhaPlant: map-created resident handoff/deduplication
-
-[[mod_function_hook]]
-addr = 0xE5C8           # DrawLargePlatform: complete platform beyond native clipping
-
-[[mod_function_hook]]
-addr = 0xED66           # DrawSmallPlatform: both members of a looping lift
+# Sound-command setup mixes an RTS dispatch at $97FF with a normal RTS at
+# $9859. Native generation inserts an extra stack-pop dispatch on the latter
+# path (after $9857), corrupting the return to $97DA at logical frame 2.
+# Sound-stream decoding at $92F7 pushes a handler from $932C/$932D and a
+# continuation ($9303) before RTS $932B, which native code treats as a return.
+# Command $82 enters $9376, discards BOTH the synthetic continuation and the
+# $91F3 JSR return, then jumps to $9239 inside the enclosing sound-update loop.
+# Interpret from $917C so all four PLAs stay within one architectural frame;
+# a decoder-only island exits after the third PLA and corrupts NMI restoration.
+[force_interp]
+bank0 = [0x917C, 0x92F7, 0x97E4]

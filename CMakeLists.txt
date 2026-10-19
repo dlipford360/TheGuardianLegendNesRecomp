@@ -1,199 +1,64 @@
 cmake_minimum_required(VERSION 3.20)
-project(SuperMarioBrosRecomp C CXX)
-
+project(GuardianLegendNESRecomp C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
-
-set(NESRECOMP_ROOT "${CMAKE_SOURCE_DIR}/nesrecomp" CACHE PATH "NESRecomp engine checkout")
-
-# nesrecomp/ and recomp-ui/ are git submodules (see .gitmodules); the pinned
-# commit is the gitlink recorded in this repo. After cloning run setup.sh/.bat
-# (git submodule update --init) to fetch them at the recorded commits.
-
-set(NESRECOMP_ENABLE_MODS ON CACHE BOOL
-    "Enable package mods for Super Mario Bros." FORCE)
-include(${NESRECOMP_ROOT}/runner/runner.cmake)
-
-list(APPEND CMAKE_PREFIX_PATH "${NESRECOMP_ROOT}/runner/external/SDL2/cmake")
+set(NESRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/nesrecomp")
+option(TGL_LAUNCHER "Build the recomp-ui launcher" ON)
+option(TGL_COSIM "Compile developer co-simulation capture and fault injection" OFF)
+include("${NESRECOMP_ROOT}/runner/runner.cmake")
+set_property(SOURCE "${NESRECOMP_ROOT}/runner/src/runtime.c" APPEND PROPERTY
+    COMPILE_DEFINITIONS NESRECOMP_COSIM=$<BOOL:${TGL_COSIM}>)
+if(WIN32)
+    list(APPEND CMAKE_PREFIX_PATH "${NESRECOMP_ROOT}/runner/external/SDL2/cmake")
+endif()
 find_package(SDL2 REQUIRED)
-
-# ---- Main executable ----
-add_executable(SuperMarioBrosRecomp
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/rom.cmake")
+    message(FATAL_ERROR "Run python3 tools/project.py generate first")
+endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/generated/rom.cmake")
+# Use only the parts named by the current umbrella, not stale files left by
+# earlier generations. Compiling these separately bounds Clang memory usage.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/generated/guardian-legend_full.c" TGL_PART_LINES
+    REGEX "^#include \"guardian-legend_full_bank.*\\.c\"")
+set(TGL_PARTS)
+foreach(line IN LISTS TGL_PART_LINES)
+    string(REGEX REPLACE "^#include \"([^\"]+)\".*" "\\1" part "${line}")
+    list(APPEND TGL_PARTS "generated/${part}")
+endforeach()
+add_executable(GuardianLegendRecomp
     ${NESRECOMP_RUNNER_SOURCES}
     src/extras.c
-    src/game_widescreen.c
-    src/smb_ws_world.c
-    src/smb_ws_actors.c
-    src/game_voxel.c
-    src/game_smash64.c
-    src/game_smash64_actions.c
-    src/game_smash64_fighter_profile.c
-    src/game_smash64_audio.c
-    src/game_smash64_assets.c
-    src/game_smash64_render.c
-    src/game_link.c
-    src/game_link_audio.c
-    src/game_samus.c
-    src/game_samus_audio.c
-    src/game_sonic.c
-    src/game_sonic_audio.c
-    mods/widescreen_plugin.c
-    mods/voxel_plugin.c
-    mods/smash64_player_plugin.c
-    mods/zelda2_player_plugin.c
-    mods/metroid_player_plugin.c
-    mods/s3k_player_plugin.c
-    mods/smash64_owner_assets.c
-    mods/smash64/characters/captain_falcon.c
-    mods/zelda2/link_controller.c
-    mods/metroid/samus_controller.c
-    mods/s3k/sonic_controller.c
-    mods/smash64/ssb_ported/falcon_locomotion.c
-    mods/smash64/characters/pikachu.c
-    mods/smash64/ssb_ported/pikachu_locomotion.c
-    src/nes_snapshot.c
-    src/verify_mode.c
-    src/watchdog.c
-    generated/super-mario-bros_full.c
-    generated/super-mario-bros_dispatch.c
-)
-
-target_compile_definitions(SuperMarioBrosRecomp PRIVATE
-    RECOMP_STACK_TRACKING WATCHDOG_ENABLED
-    NESRECOMP_GAME_PLAYERS=2
-    NESRECOMP_GAME_ID="super-mario-bros-world"
-    NESRECOMP_GAME_ROM_CRC32="d445f698"
-    NESRECOMP_GAME_SDL_EVENT_HOOK=game_voxel_handle_event)
-
-target_include_directories(SuperMarioBrosRecomp PRIVATE
-    ${NESRECOMP_RUNNER_INCLUDE_DIRS}
-    ${NESRECOMP_ROOT}/runner/src
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/src
-    ${SDL2_INCLUDE_DIRS}
-)
-
-target_link_libraries(SuperMarioBrosRecomp PRIVATE ${SDL2_LIBRARIES})
-
-# The baker is publishable code; its inputs and output remain under the
-# ignored assets_ssb64 quarantine. A checkout without those local assets
-# simply omits this target and the runtime uses its cube fallback.
-set(FALCON_ASSET_ROOT "${CMAKE_SOURCE_DIR}/assets_ssb64")
-set(FALCON_RUNTIME_BLOB "${FALCON_ASSET_ROOT}/falcon_runtime.bin")
-if(EXISTS "${FALCON_ASSET_ROOT}/model/captain_model.json")
-    find_package(Python3 COMPONENTS Interpreter QUIET)
-    if(Python3_Interpreter_FOUND)
-        file(GLOB_RECURSE FALCON_ASSET_INPUTS CONFIGURE_DEPENDS
-            "${FALCON_ASSET_ROOT}/model/*.json"
-            "${FALCON_ASSET_ROOT}/textures/*.json"
-            "${FALCON_ASSET_ROOT}/textures/*.bin"
-            "${FALCON_ASSET_ROOT}/textures/*.png"
-            "${FALCON_ASSET_ROOT}/anim/*.json"
-            "${FALCON_ASSET_ROOT}/effects/*.bin")
-        add_custom_command(
-            OUTPUT "${FALCON_RUNTIME_BLOB}"
-            COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_SOURCE_DIR}/tools/bake_falcon_runtime.py"
-                "${FALCON_ASSET_ROOT}" "${FALCON_RUNTIME_BLOB}"
-            DEPENDS
-                "${CMAKE_SOURCE_DIR}/tools/bake_falcon_runtime.py"
-                ${FALCON_ASSET_INPUTS}
-            COMMENT "Baking local-only Captain Falcon runtime assets"
-            VERBATIM)
-        add_custom_target(falcon_runtime_assets DEPENDS "${FALCON_RUNTIME_BLOB}")
-        add_dependencies(SuperMarioBrosRecomp falcon_runtime_assets)
-    endif()
-endif()
-
-# Release-facing owner-ROM extractor. The executable contains only recipe
-# code; it derives Falcon's cache from the launcher-verified owner ROM and no
-# ROM or generated asset is staged beside the game.
-option(NESRECOMP_REQUIRE_FALCON_OWNER_HELPER
-    "Fail configuration unless the release Falcon owner-ROM helper can be built" OFF)
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    execute_process(
-        COMMAND "${Python3_EXECUTABLE}" -c "import PyInstaller; import PIL"
-        RESULT_VARIABLE FALCON_PYINSTALLER_AVAILABLE
-        OUTPUT_QUIET ERROR_QUIET)
-    if(FALCON_PYINSTALLER_AVAILABLE EQUAL 0)
-        file(GLOB FALCON_OWNER_HELPER_SOURCES CONFIGURE_DEPENDS
-            "${CMAKE_SOURCE_DIR}/tools/owner_ssb64/*.py")
-        set(FALCON_OWNER_HELPER_BUILD
-            "${CMAKE_BINARY_DIR}/falcon_owner_helper_build")
-        set(FALCON_OWNER_HELPER_DIST
-            "${CMAKE_BINARY_DIR}/falcon_owner_helper_dist")
-        set(FALCON_OWNER_HELPER_EXE
-            "${FALCON_OWNER_HELPER_DIST}/falcon_owner_assets${CMAKE_EXECUTABLE_SUFFIX}")
-        add_custom_command(
-            OUTPUT "${FALCON_OWNER_HELPER_EXE}"
-            COMMAND "${CMAKE_COMMAND}" -E make_directory
-                "${FALCON_OWNER_HELPER_BUILD}" "${FALCON_OWNER_HELPER_DIST}"
-            COMMAND "${Python3_EXECUTABLE}" -m PyInstaller
-                --noconfirm --clean --onefile --exclude-module numpy
-                --name falcon_owner_assets
-                --distpath "${FALCON_OWNER_HELPER_DIST}"
-                --workpath "${FALCON_OWNER_HELPER_BUILD}/work"
-                --specpath "${FALCON_OWNER_HELPER_BUILD}"
-                --paths "${CMAKE_SOURCE_DIR}/tools"
-                --paths "${CMAKE_SOURCE_DIR}/tools/owner_ssb64"
-                "${CMAKE_SOURCE_DIR}/tools/owner_ssb64/build_final_cache.py"
-            DEPENDS
-                "${CMAKE_SOURCE_DIR}/tools/bake_falcon_runtime.py"
-                ${FALCON_OWNER_HELPER_SOURCES}
-            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-            COMMENT "Packaging the Falcon owner-ROM cache helper"
-            VERBATIM)
-        add_custom_target(falcon_owner_assets_helper
-            DEPENDS "${FALCON_OWNER_HELPER_EXE}")
-        add_dependencies(SuperMarioBrosRecomp falcon_owner_assets_helper)
-        add_custom_command(TARGET SuperMarioBrosRecomp POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${FALCON_OWNER_HELPER_EXE}"
-                "$<TARGET_FILE_DIR:SuperMarioBrosRecomp>/falcon_owner_assets${CMAKE_EXECUTABLE_SUFFIX}")
-    else()
-        if(NESRECOMP_REQUIRE_FALCON_OWNER_HELPER)
-            message(FATAL_ERROR
-                "Release requires Python packages PyInstaller and Pillow for the Falcon owner-ROM helper")
-        else()
-            message(WARNING
-                "PyInstaller/Pillow unavailable; Falcon owner-ROM helper will not be built")
-        endif()
-    endif()
-elseif(NESRECOMP_REQUIRE_FALCON_OWNER_HELPER)
-    message(FATAL_ERROR
-        "Release requires Python 3 for the Falcon owner-ROM helper")
-endif()
-
+    ${TGL_PARTS}
+    generated/guardian-legend_full.c
+    generated/guardian-legend_dispatch.c)
+target_include_directories(GuardianLegendRecomp PRIVATE
+    ${NESRECOMP_RUNNER_INCLUDE_DIRS} "${NESRECOMP_ROOT}/runner/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}" ${SDL2_INCLUDE_DIRS})
+target_compile_definitions(GuardianLegendRecomp PRIVATE
+    NESRECOMP_SPLIT_PARTS_EXTERNAL
+    TGL_ROM_CRC32=0x${TGL_PRG_CRC32}u
+    NESRECOMP_GAME_ID="guardian-legend-usa"
+    NESRECOMP_GAME_PLAYERS=1
+    NESRECOMP_GAME_ROM_CRC32="${TGL_PRG_CRC32}")
+target_link_libraries(GuardianLegendRecomp PRIVATE ${SDL2_LIBRARIES})
 if(WIN32)
-    target_link_libraries(SuperMarioBrosRecomp PRIVATE ws2_32 dbghelp)
+    target_link_libraries(GuardianLegendRecomp PRIVATE ws2_32 dbghelp)
 endif()
-
-# ---- Post-build ----
-if(WIN32)
-    add_custom_command(TARGET SuperMarioBrosRecomp POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${NESRECOMP_ROOT}/runner/external/SDL2/lib/x64/SDL2.dll"
-            "$<TARGET_FILE_DIR:SuperMarioBrosRecomp>"
-    )
+if(APPLE)
+    # launcher.c sets ApplePressAndHoldEnabled via CFPreferences (accent-panel
+    # opt-out for held keys); the Homebrew SDL2 dylib does not re-export it.
+    target_link_libraries(GuardianLegendRecomp PRIVATE "-framework CoreFoundation")
 endif()
-
-if(MSVC)
-    target_compile_options(SuperMarioBrosRecomp PRIVATE /W3 /WX-)
-    target_compile_options(SuperMarioBrosRecomp PRIVATE /wd4102)
+if(TGL_LAUNCHER)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui/recomp_ui.cmake")
+    recomp_target_launcher_ui(GuardianLegendRecomp CONSOLE nes)
 endif()
-
-# ---- Pre-boot GUI launcher (recomp-ui / Dear ImGui) ----
-# recomp-ui/ is a pinned submodule. Its
-# module defines RECOMP_LAUNCHER on the target, un-gating the launcher block in
-# launcher.c's main(), and stages the launcher assets next to the exe.
-include(${CMAKE_SOURCE_DIR}/recomp-ui/recomp_ui.cmake)
-recomp_target_launcher_ui(SuperMarioBrosRecomp
-    CONSOLE nes
-    BOXART ${CMAKE_SOURCE_DIR}/boxart.tga)
-
-add_custom_command(TARGET SuperMarioBrosRecomp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/mods/preloaded"
-        "$<TARGET_FILE_DIR:SuperMarioBrosRecomp>/mods"
-    COMMENT "Staging SMB's preloaded NES mod packages")
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(tgl_mapper_test tests/mapper_test.c "${NESRECOMP_ROOT}/runner/src/mapper.c")
+    target_include_directories(tgl_mapper_test PRIVATE "${NESRECOMP_ROOT}/runner/include")
+    add_test(NAME uxrom COMMAND tgl_mapper_test)
+    add_executable(tgl_raster_test tests/ppu_raster_test.c "${NESRECOMP_ROOT}/runner/src/ppu_dot.c")
+    target_include_directories(tgl_raster_test PRIVATE "${NESRECOMP_ROOT}/runner/include")
+    add_test(NAME ppu_raster_v COMMAND tgl_raster_test)
+endif()

@@ -1,280 +1,151 @@
-# SuperMarioBrosRecomp
+# The Guardian Legend NES Recomp
 
-> _This recompilation is a **byproduct of developing
-> [nesrecomp](https://github.com/mstan/nesrecomp)** — the games are the proving ground, the framework is the goal.
-> **These are in-development previews, not finished ports — expect rough
-> edges**, and depth will keep landing over months, not days. My time for any
-> one title is limited, so I ask for your patience. Contributions are welcome —
-> testing, issues, and PRs to the game or framework all help and will
-> accelerate this game's polish. More on the why at:
-> [Recomp + AI: 5 Months Later »](https://1379.tech/recomp-ai-5-months-later/)_
+Experimental Guardian Legend (USA) port using [NESRecomp](https://github.com/mstan/nesrecomp),
+structured after [SuperMarioBrosNESRecomp](https://github.com/mstan/SuperMarioBrosNESRecomp).
 
-Static recompilation of Super Mario Bros. (NES) for native PC.
-Built with the [NESRecomp](https://github.com/mstan/nesrecomp) framework.
+**Bootstrap status:** builds on Intel macOS, renders the title screen, and completes
+900 no-input smoke frames with zero dispatch misses. This is **not a finished
+port**: independent co-simulation currently diverges and gameplay/presentation
+differences remain. Native reset and game code run with explicitly configured
+sound interpreter islands. Zero dispatch misses does not mean zero interpreted
+code. The first-level sound-stack escape is covered by a regression fix; see
+[the first-level investigation](docs/FIRST_LEVEL.md).
+The missing bottom HUD is corrected by the game's default scanline renderer;
+see [HUD rendering](docs/HUD.md).
 
-> **Status:** The game is fully playable. All worlds and levels are believed to be completable, though not every path has been exhaustively tested. If you find a game-breaking bug, please [open an issue](../../issues).
+## Build And Run
 
-## Known Issues
+Prerequisites: Git, Python 3.10+, CMake 3.20+, C/C++ compiler, and SDL2. On this
+Intel Mac the prerequisites were already installed. A typical Homebrew setup is
+`brew install cmake sdl2`. Linux/Windows game builds have not been validated here;
+the provided oracle build script explicitly targets Intel macOS.
 
-- **Demo sequence non-determinism** — the title screen auto-play demo may behave
-  differently between launches — an item the demo collects on one run can be
-  missed on another. This is a minor frame-timing inconsistency in real-time mode
-  (turbo/fast-forward mode is fully deterministic).
-  Gameplay is unaffected.
-
-## Quick Start
-
-1. Download `SuperMarioBrosRecomp-windows-x64.zip` from [Releases](../../releases)
-2. Extract and run `SuperMarioBrosRecomp.exe`
-3. Select your Super Mario Bros. (World) ROM when prompted — the path is saved for future launches
-
-For contributors: [build from source](#building-from-source), browse the
-[repository layout](#repository-layout), or start with the
-[developer guides](docs/README.md) and [test instructions](tests/README.md).
-
-## Character replacements (experimental)
-
-SuperMarioBrosRecomp includes default-off, mutually exclusive character
-replacement mods. They are experimental showcases: expect occasional bugs, and
-use the launcher **Mods** screen to enable only one `player-controller` package
-at a time. Each replacement is backed by a legally owned source ROM that the
-launcher verifies before play; no owner ROM data or generated owner-ROM assets
-are shipped in the release.
-
-| Captain Falcon | Pikachu |
-| --- | --- |
-| ![Captain Falcon in World 1-2](docs/screenshots/character-replacements/captain-falcon.png) | ![Pikachu firing Thunder Jolt in World 1-1](docs/screenshots/character-replacements/pikachu.png) |
-| Samus | Link |
-| ![Samus in World 1-1](docs/screenshots/character-replacements/samus.png) | ![Zelda II Link firing a crouched sword beam in World 1-1](docs/screenshots/character-replacements/link.png) |
-| Sonic | |
-| ![Sonic from Sonic 3 & Knuckles in World 1-2](docs/screenshots/character-replacements/sonic.png) | |
-
-## Smash 64 characters (bundled mod)
-
-Open **Mods**, select **Smash 64 Player Replacement**, choose Captain Falcon or
-Pikachu from the Character dropdown, and select your legally owned
-**Super Smash Bros. (USA), NTSC-U v1.0** ROM. The launcher accepts z64, v64, or
-n64 byte order and verifies normalized SHA-1
-`e2929e10fccc0aa84e5776227e798abc07cedabf`. The mod cannot be enabled without
-that exact revision.
-
-On first play, the bundled helper derives the selected fighter's model,
-animations, effects, and audio into an integrity-checked user cache. Neither
-the Smash 64 ROM nor generated fighter assets are included in the download or
-copied into the game directory. A is the fighter's normal attack, B is the
-fighter's special, and Up is the four-frame Smash jump. Captain Falcon has
-Falcon Punch, Falcon Dive, and Falcon Kick; Pikachu has Thunder Jolt, Quick
-Attack, and Thunder.
-
-## Samus (bundled mod)
-
-Open **Mods**, enable **Metroid Samus Player Replacement**, and select a legally
-owned canonical **Metroid USA PRG0 or Europe/PAL** ROM. Headered and headerless
-images are accepted; the launcher strips a valid iNES header and verifies
-normalized SHA-1 `fdbfc7871962f72a1ef57e5a7e456164fb93430b` (USA) or
-`68a55eafcefa3014a4771cb7983d7db42f80456a` (Europe). Samus's sprite tiles are extracted
-into memory from that verified ROM. No Metroid ROM data or derived graphics are
-shipped or written beside the game.
-
-Samus begins with 99 energy and every original upgrade equipped. A jumps, B
-fires, Down morphs, and Select switches between the combined Long/Wave/Ice beam
-and infinite missiles. B lays bombs in Morph Ball. Screw Attack, missiles, and
-bombs break only SMB's ordinary breakable bricks; contact hurts Samus instead
-of stomping enemies. Mushroom restores 30 energy, Fire Flower restores all
-energy. Bomb blasts boost a nearby Morph Ball upward, and Starman contact
-defeats enemies while its native temporary invincibility is active. Metroid's
-ability sound effects are rebuilt in memory from the verified owner ROM.
-
-The Samus and Smash 64 packages share the `player-controller` exclusive group,
-so the launcher permits only one at a time. See
-[docs/METROID_SAMUS_MOD.md](docs/METROID_SAMUS_MOD.md) for implementation and
-validation details.
-
-## Zelda II Link (bundled mod)
-
-Open **Mods**, enable **Zelda II Link Player Replacement**, and select a legally
-owned canonical **Zelda II: The Adventure of Link (USA)** ROM. Headered and
-headerless images are accepted; the launcher strips a valid iNES header and
-verifies normalized SHA-1 `11333adb723a5975e0ecca3aee8f4747aa8d2d26`. Link's
-side-view sprite tiles are extracted into memory from that verified ROM. No
-Zelda II ROM data or derived graphics are shipped or written beside the game.
-
-Link uses Zelda II-style controls: A jumps, B slashes, Down crouches, and
-Up/Down with B in the air performs vertical stabs. Sword strikes hurt enemies
-and, as an SMB-specific liberty, can break ordinary breakable bricks. The Link,
-Samus and Smash 64 packages share the `player-controller` exclusive group, so
-the launcher permits only one at a time. See
-[docs/ZELDA2_LINK_MOD.md](docs/ZELDA2_LINK_MOD.md) for implementation and
-validation details.
-
-## Sonic 3 & Knuckles Sonic (bundled mod)
-
-Open **Mods**, enable **Sonic 3 & Knuckles Sonic Player Replacement**, choose
-Sonic from the Character dropdown, and select a legally owned canonical
-**Sonic 3 & Knuckles** Genesis ROM. The launcher verifies normalized SHA-1
-`cfbf98c36c776677290a872547ac47c53d2761d6`. Sonic's Genesis sprites are
-decoded into memory from that verified ROM. No Sonic 3 & Knuckles ROM data or
-derived graphics are shipped or written beside the game.
-
-Sonic uses Sonic 3 & Knuckles-style movement adapted to SMB worlds: A jumps,
-Down crouches, Down+B charges a spindash, and spin attacks hurt enemies. A
-spindash-origin roll can break ordinary breakable bricks and preserve momentum
-through block rows; ordinary ground rolls do not break bricks. Fire Flower
-grants a fire shield presentation and enables an airborne double-A fire dash.
-The Sonic, Link, Samus and Smash 64 packages share the `player-controller`
-exclusive group, so the launcher permits only one at a time.
-
-## Widescreen mod (experimental)
-
-An experimental custom renderer extends the terrain beyond the NES's 256-pixel
-viewport, with **Fit window**, **16:9**, **21:9**, and **32:9** options. Ordinary
-authored enemies load across the wide view. **Enemy movement** selects movement
-on load or preserved original 4:3 activation. Independent moving platforms also
-use the expanded view. Special spawners, linked balance platforms and
-some other objects still retain native limits. See
-[widescreen guide](docs/WIDESCREEN.md) for the current limits and validation.
-
-The camera anchors at the start and end of an area to avoid empty space.
-Small fixed rooms stay centered. Select **Keep native view centered** in the
-Camera option to restore the previous presentation.
-
-Open **Mods** in the launcher and enable **Widescreen (Experimental)**. It is a
-default-off package alongside **Voxel 3D**. The two display modes are mutually
-exclusive: enabling either one automatically disables the other. Neither
-package patches the stock ROM. With both disabled the game is the authentic
-4:3 recomp, verified byte-identical to the emulator reference.
-
-## Voxel 3D (experimental)
-
-[![Super Mario Bros. Voxel 3D video](https://img.youtube.com/vi/qEx9pl6CK1k/maxresdefault.jpg)](https://www.youtube.com/watch?v=qEx9pl6CK1k)
-
-Open **Mods** in the launcher and enable **Voxel 3D**. This first-person
-experiment rotates the sampled side-scroller plane upright and moves the camera
-with Mario while looking along his live facing direction. Right faces forward
-along the course; turning Left smoothly reverses the camera 180 degrees, as it
-does for Samus in Metroid's first-person mode. Mario's own sprite is hidden
-from the first-person view; enemies and items remain camera-facing cards among
-the reconstructed blocks, pipes, flagpoles, and terrain.
-
-First-person movement uses compact tank controls: Up advances in the direction
-the camera faces and Left/Right select the corresponding facing. Down makes
-small Mario backpedal without reversing the view; grounded tall Mario retains
-his native crouch. The right stick looks vertically; pushing it fully upward
-looks almost straight up and centers Mario's overhead column for lining up
-jumps into blocks. Releasing the stick returns the camera to level. Crouching
-lowers the camera to tall Mario's crouched eye level and standing raises it
-again. Small Mario and pipe-entry input retain their ordinary eye height. A, B,
-Start, and Select retain their original NES behavior.
-
-The package saves camera pitch, yaw, roll, zoom, and sprite scale. During play,
-Numpad 8/2 adjusts pitch, 4/6 rotates yaw, 7/9 rolls the view, +/- changes zoom,
-and 1/3 changes sprite scale. Numpad 0 toggles Voxel 3D and Numpad 5 restores
-the package defaults. These live controls are intended for experimentation;
-the values selected in Mods remain the persistent defaults.
-
-Voxel 3D is disabled by default, is mutually exclusive with Widescreen,
-and does not patch the stock ROM or alter save data.
-
-## Controls
-
-| NES Button | Keyboard |
-|------------|----------|
-| D-Pad      | Arrow keys |
-| A          | Z |
-| B          | X |
-| Start      | Enter |
-| Select     | Backslash |
-
-## Hotkeys
-
-| Key | Action |
-|-----|--------|
-| Hold Tab | Turbo (fast-forward) |
-| F1–F12 | Load the corresponding save slot |
-| Shift+F1–F12 | Save to the corresponding slot |
-| Alt+Enter | Toggle fullscreen |
-
-## ROM
-
-| Field | Value |
-|-------|-------|
-| Title | Super Mario Bros. (World) |
-| CRC32 | `3337EC46` |
-| MD5   | `811b027eaf99c2def7b933c5208636de` |
-| SHA-1 | `ea343f4e445a9050d4b4fbac2c77d0693b1d0922` |
-
-## Building from Source
-
-Windows prerequisites: Visual Studio 2022 with C++ tools and CMake 3.20+
-(SDL2 is bundled). The [Linux](tools/build-linux.sh) and
-[macOS](tools/build-macos.sh) build scripts list their platform prerequisites.
-Python 3 with `PyInstaller` and `Pillow` is needed for the Smash 64 owner-ROM
-cache helper and is required when packaging Windows/Linux releases.
+From this repository:
 
 ```bash
-git clone https://github.com/mstan/SuperMarioBrosNESRecomp
-cd SuperMarioBrosNESRecomp
-
-# Windows
-setup.bat
-
-# Linux / macOS
-chmod +x setup.sh && ./setup.sh
+bash setup.sh
+bash build.sh
+build/game/GuardianLegendRecomp "Guardian Legend, The (U) [!].nes"
 ```
 
-This initializes the pinned engine and launcher submodules and links the
-Nestopia oracle core. The optional `smb-disassembly` reference submodule is
-only needed for reverse engineering; initialize it with
-`git submodule update --init smb-disassembly`.
+`build.sh` verifies the ROM, builds the recompiler, regenerates C, and builds the
+game plus the same `recomp-ui` launcher used by the reference project. Run the
+executable without arguments to use its ROM-selection launcher. No Mario art,
+mods, symbols, generated code, or ROM is used by this port.
 
-Then build on Windows:
+To use another path to the same ROM revision:
 
 ```bash
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+bash build.sh --rom "/absolute/path/to/Guardian Legend.nes"
+python3 tools/project.py rom-info --rom "/absolute/path/to/Guardian Legend.nes"
 ```
 
-On Linux, run `bash tools/build-linux.sh --no-package`; on macOS, run
-`bash tools/build-macos.sh --no-dmg`.
+The original local ROM is left in place and ignored by Git. Generation requires
+the verified image with SHA-256:
 
-The generated C is committed, so a normal build does not require regeneration.
-The game still needs your ROM at runtime. To regenerate after changing
-`game.toml` or `symbols.sym`, place your ROM at `baserom.nes` and use
-`build_all.bat` on Windows; it builds the recompiler, regenerates the C, and
-builds the game and owner-ROM helper.
+```text
+5dd3fc3140066c3574b69557d3ebfe08fb0d110eaf8e309634ab1398eb0857b7
+```
 
-## Repository layout
+Cartridge: iNES mapper 2, 128 KiB PRG ROM, 8 KiB CHR RAM, vertical mirroring;
+headerless PRG CRC32 `fa43146b`. No BIOS is required. ROMs, generated C, extracted
+assets, builds, and diagnostic snapshots are not distributed or tracked.
 
-This is a **static recompiler**, not an emulator. The 6502 machine code in the ROM
-has been translated to C by [NESRecomp](nesrecomp/) and compiled to native x64.
+## Co-Simulation
+
+This follows the [Retro Porting Toolkit guide](https://retroportingtoolkit.com/docs/guides/set-up-co-simulation):
+use an independent emulator, compare at guest-time checkpoints, prove the red
+path, and retain the first mismatch rather than hide it with alignment heuristics.
+
+```bash
+bash build.sh --cosim
+bash tools/build-oracle.sh
+python3 tools/cosim.py selftest --frames 180 --timeout 30
+python3 tools/cosim.py compare --frames 900 --timeout 30
+```
+
+The selftest should pass. **The independent comparison is currently expected to
+fail.** See [the recorded baseline](docs/BASELINE.md) for the exact disagreements.
+The oracle is pinned Mesen through the portable `nesref` frontend, not the
+framework's own interpreter. It runs as a separate development process.
+
+Each command prints its result and a retained `summary.json` path under
+`build/cosim-runs/`. Logs, traces, binary copies, and local-only ROM snapshots are
+kept there. Runs isolate executable-relative saves and do not erase player saves.
+The harness rejects early exits, timeouts, truncated streams, missing checkpoints,
+and incomplete initial snapshots. No game-specific address masks, live input,
+RNG freezes, or automatic offsets are inherited.
+
+Exit codes are `0` for PASS, `1` for FAIL, and `2` for UNSUPPORTED. Even if all
+currently extracted independent channels agree, unsupported CPU/mapper/CHR and
+other channels prevent a full-machine certification. Native hashes cover those
+channels only for repeatability, not independent correctness.
+
+To narrow the first RAM divergence without changing alignment:
+
+```bash
+python3 tools/cosim.py compare --frames 180 --start 1 --end 8 --stride 1 --timeout 30
+```
+
+`--offset N` explicitly compares oracle frame `f+N` to native frame `f`.
+`--mask-stack` explicitly excludes CPU RAM `$0100-$01FF`; default comparison is
+unmasked. All exclusions and compared-frame counts are recorded. Do not add
+exclusions just to make results green. `--cycle-tolerance` is an explicit interval
+budget in CPU cycles, default 2, not a frame-alignment control.
+
+Normal `build/game` builds compile out co-sim capture, RAM freezing, and fault
+injection (`TGL_COSIM=OFF`), and use the TCP debug-server stub. `build/cosim`
+enables those features and diagnostic rings. Optional live TCP debugging is
+enabled only with `NESRECOMP_DEBUG=1`, on localhost port 4370. Co-simulation itself
+uses deterministic file captures, not TCP or wall-clock synchronization.
+
+Guardian Legend selects the cycle-driven scanline renderer by default because
+its bottom status bar changes the PPU address partway through the picture.
+`NESRECOMP_DOT_PPU=0` is a diagnostic override to the legacy renderer, not a
+recommended setting: that path cannot display this HUD split correctly.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+ctest --test-dir build/cosim --output-on-failure
+python3 tests/synthetic_uxrom.py --out build/uxrom-check
+python3 tests/synthetic_sound_stack.py --out build/sound-stack-check --recompiler build/recompiler/NESRecomp
+python3 tools/check_first_level.py --combat
+python3 tools/check_first_level.py --delayed --windowed
+```
+
+Use a fresh output directory for each synthetic run. The fixture constructs
+original machine-code probes; it never reads the game ROM. It exercises actual
+generated C, runtime, mapper, and interpreter code with peripheral stubs.
+
+## Layout
 
 | Path | Purpose |
-|------|---------|
-| [`src/`](src/) | Handwritten game integration; start with `extras.c` |
-| [`mods/`](mods/) | Character controllers, plugin entry points, and bundled package manifests |
-| [`generated/`](generated/) | Committed recompiled 6502 code and dispatch table |
-| [`game.toml`](game.toml), [`symbols.sym`](symbols.sym) | Recompiler configuration and named ROM/RAM symbols |
-| [`tests/`](tests/README.md) | Controller harnesses, runtime probes, and regression baselines |
-| [`tools/`](tools/) | Build, packaging, debugging, and owner-ROM asset tools |
-| [`docs/`](docs/README.md) | Technical guides, screenshots, and archived development notes |
-| [`nesrecomp/`](nesrecomp/), [`recomp-ui/`](recomp-ui/) | Pinned engine and launcher dependencies |
-| [`smb-disassembly/`](smb-disassembly/) | Optional upstream disassembly reference |
-| [`ghidra/`](ghidra/README.md) | Local analysis policy; database files are ignored |
+| --- | --- |
+| `game.toml`, `symbols.sym` | Game discovery/configuration and symbol overlay |
+| `src/extras.c` | Minimal game hooks and explicit cartridge conflict policy |
+| `generated/` | Ignored regenerated code and ROM metadata |
+| `nesrecomp/`, `recomp-ui/` | Pinned Git submodules |
+| `patches/nesrecomp.patch` | Reproducible engine/oracle changes over the pin |
+| `dependencies.json` | Upstream reference and dependency revisions |
+| `tools/` | Build, ROM verification, oracle, and strict comparison tools |
+| `tests/` | Mapper, synthetic CPU, and harness regressions |
+| `docs/` | Baseline, mapper investigation, and remaining issues |
 
-Report bugs through [GitHub Issues](../../issues). The notes under
-`docs/archive/` preserve earlier investigations and are not a current issue tracker.
+The complete Mario reference clone lives separately at
+`../SuperMarioBrosNESRecomp`, with all its recursive submodules including
+`smb-disassembly`. Guardian Legend depends only on its own pinned submodules, not
+the sibling checkout. There is no new GitHub remote or commit yet.
+
+See [mapper notes](docs/MAPPER2.md) and [patch maintenance](patches/README.md).
 
 ## License
 
-PolyForm Noncommercial 1.0.0 — see [`LICENSE`](LICENSE). Third-party
-components retain their own licenses.
-
----
-
-<p align="center">
-  <sub><b>R.A.I.D. — Retro AI Development</b> · a Discord for AI-assisted retro reverse-engineering, decomp &amp; recomp</sub>
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/Ad9BwSzctP"><img src=".github/raid-discord.png" alt="Join the Retro AI Development (R.A.I.D.) Discord" width="200"></a>
-</p>
+Upstream-derived work retains the PolyForm Noncommercial terms and attribution
+in `LICENSE`. NESRecomp and recomp-ui retain their own license files and notices.
+SDL2, Dear ImGui, and other bundled components retain their upstream terms.
+Mesen is a separately built GPL-licensed development oracle; its source and
+license remain in the pinned `build/oracle-src/Mesen` checkout, and it is not
+linked or packaged into the game. The ROM and original game assets remain their
+owners' property and are not included.
