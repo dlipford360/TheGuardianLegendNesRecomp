@@ -228,3 +228,39 @@ were the reason those paths got exercised in corrupted states after reloads.
 Validation: player repeated the load-9 → die → wait → START → reload → die
 recipe several times with zero black screens, zero watchdogs, zero BRKs;
 `--shoot` and the double-load cosim replay (byte-identical hashes) pass.
+
+## Slot-7 crash: equal-stack return with a pending tail lap
+
+The player's newer slot 7 saves at frame 4148145. Loading it through F7
+reproduced BRK at `$32E7`, bank 4, frame 4148541. A headless LOAD_STATE replay
+reproduced the same failure. The saved state is private runtime input, not
+included in the repository.
+
+The trace shows `$E6F0: JSR $D6AE` dispatching through an inline address table.
+`$D6AE` consumes the JSR operand and pushes a selected target for RTS. On the
+second dispatch to `$E85E`, the native tail-loop flattener detects the same
+active address and stack pointer (S=$F6) and defers the lap to its ancestor.
+The JSR guard nevertheless accepted equal S as an ordinary return. Execution
+fell through into the table at `$E6F3`, then decoded `$E6F5` as `JSR $32E7`.
+
+Fix: `nes_jsr_stack_ok_after_call` now rejects a return while a tail lap is
+pending, before testing stack equality. This propagates the unwind until the
+owning native tail frame consumes the deferred lap. Ordinary equal-S returns
+remain accepted. No entry roots, watchdog thresholds, or ROM data changed.
+
+Validation:
+- `tests/synthetic_tail_unwind.py` links the real runtime with an original,
+  ROM-free dispatcher fixture. Without the new guard the inline-data marker
+  incorrectly executes; with it all six checks pass, including normal-return
+  behavior, balanced stack, and cleared pending state after the lap.
+- Slot-7 headless replay completes 3,600 frames after load, exit 0.
+- Windowed F7 replay also completes, exit 0 at frame 4151743, with no BRK,
+  watchdog, interpreter decline, or derailment markers (formerly frame 4148541).
+- First-level `--shoot` passes; synthetic UxROM reports 477 checks with no
+  failures; narrow and broad sound-stack regressions each pass 44 checks.
+- `tests/slot7-reload.script` retains the F7 repro recipe for windowed checks.
+
+Evidence is retained locally under `build/rt/slot7-*.log` and
+`build/tail-unwind-{before2,after2}/`. This is distinct from the earlier stale
+tail-table-on-load bug: these are live, legitimate ancestor slots whose
+pending transfer was not being propagated through a native JSR caller.

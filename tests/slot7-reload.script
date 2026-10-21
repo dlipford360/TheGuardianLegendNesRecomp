@@ -1,0 +1,7 @@
+# Requires the player's slot07.sav in the executable's savestates directory.
+# This slot previously reached BRK $32E7 about 396 frames after loading.
+# Run with NESRECOMP_BRK=fatal and TGL_DERAIL_TRACE=1; retain stdout/stderr.
+WAIT 60
+KEY_TAP F7
+WAIT 3600
+EXIT 0
