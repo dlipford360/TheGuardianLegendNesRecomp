@@ -725,7 +725,7 @@ index f388175..cbc8a3d 100644
          }
      }
 diff --git a/runner/src/runtime.c b/runner/src/runtime.c
-index 1eb5a35..8ddbf73 100644
+index 1eb5a35..19db9ce 100644
 --- a/runner/src/runtime.c
 +++ b/runner/src/runtime.c
 @@ -389,6 +389,86 @@ static void load_brk_policy_from_env(void) {
@@ -954,7 +954,19 @@ index 1eb5a35..8ddbf73 100644
      uint16_t save_wb = g_code_window_base;
      if (addr >= 0x8000 || (mapper_get_type() == 40 && addr >= 0x6000))
          g_code_window_base = addr & 0xE000;
-@@ -2864,8 +3027,6 @@ static struct {
+@@ -2811,6 +2974,11 @@ int nes_dispatch_indirect_continuation(uint16_t addr, int caller_bank,
+ }
+ 
+ int nes_jsr_stack_ok_after_call(uint8_t before_s, uint64_t before_interrupt_epoch) {
++    /* A deferred tail lap must unwind to its owning C frame even when the
++     * dispatcher consumed its JSR operand and restored S exactly. Equality
++     * alone would resume after that JSR, potentially executing inline table
++     * bytes (Guardian Legend $E6F0 -> $D6AE -> deferred $E85E). */
++    if (s_tail_pending >= 0) return 0;
+     if (g_cpu.S == before_s) return 1;
+ 
+     int8_t delta = (int8_t)(g_cpu.S - before_s);
+@@ -2864,8 +3032,6 @@ static struct {
      uint8_t s;
      uint64_t interrupt_epoch;
  } s_tail_active[TAIL_ACTIVE_MAX];
@@ -963,7 +975,7 @@ index 1eb5a35..8ddbf73 100644
  
  static int tail_crosses_interrupt(int slot) {
      return s_tail_active[slot].interrupt_epoch < runtime_get_interrupt_epoch() &&
-@@ -3223,6 +3384,7 @@ void runtime_get_last_sync(uint8_t *sx, uint8_t *sy, uint16_t *t, uint64_t *fram
+@@ -3223,6 +3389,7 @@ void runtime_get_last_sync(uint8_t *sx, uint8_t *sy, uint16_t *t, uint64_t *fram
  
  uint16_t runtime_get_ppu_t(void) { return s_ppu_t; }
  uint64_t runtime_get_ppu_v_write_epoch(void) { return s_ppu_v_write_epoch; }
